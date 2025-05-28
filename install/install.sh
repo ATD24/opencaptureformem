@@ -19,7 +19,7 @@ group=$(who am i | awk '{print $1}')
 
 ####################
 # Handle parameters
-parameters="user custom_id supervisor_process path supervisor_systemd secure_rabbit rabbit_user rabbit_password rabbit_host rabbit_port rabbit_vhost"
+parameters="user supervisor_process path supervisor_systemd secure_rabbit rabbit_user rabbit_password rabbit_host rabbit_port rabbit_vhost"
 opts=$(getopt --longoptions "$(printf "%s:," "$parameters")" --name "$(basename "$0")" --options "" -- "$@")
 
 while [ $# -gt 0 ]; do
@@ -59,10 +59,10 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-if [ -z $user ]; then
+if [ -z "$user" ]; then
     printf "The user variable is empty. Please fill it with your desired user : "
     read -r user
-    if [ -z $user ]; then
+    if [ -z "$user" ]; then
         echo 'User remain empty, exiting...'
         exit
     fi
@@ -70,7 +70,7 @@ fi
 
 ####################
 # User choice
-if [ -z $supervisorOrSystemd ]; then
+if [ -z "$supervisorOrSystemd" ]; then
     echo "Do you want to use supervisor (1) or systemd (2) ? (default : 2) "
     echo "If you plan to handle a lot of files and need a reduced time of process, use supervisor"
     echo "WARNING : A lot of Tesseract processes will run in parallel and it can be very resource intensive"
@@ -149,11 +149,13 @@ git config core.fileMode False
 cp scripts/service.sh.default scripts/service.sh
 cp scripts/launch_IN.sh.default scripts/launch_IN.sh
 cp scripts/launch_reconciliation.sh.default scripts/launch_reconciliation.sh
+cp scripts/launch_attachment.sh.default scripts/launch_attachment.sh
 cp scripts/launch_MAIL.sh.default scripts/launch_MAIL.sh
 
 sed -i "s#§§PYTHON_VENV§§#source /opt/edissyum/python-venv/opencaptureformem/bin/activate#g" scripts/service.sh
 sed -i "s#§§PYTHON_VENV§§#source /opt/edissyum/python-venv/opencaptureformem/bin/activate#g" scripts/launch_IN.sh
 sed -i "s#§§PYTHON_VENV§§#source /opt/edissyum/python-venv/opencaptureformem/bin/activate#g" scripts/launch_reconciliation.sh
+sed -i "s#§§PYTHON_VENV§§#source /opt/edissyum/python-venv/opencaptureformem/bin/activate#g" scripts/launch_attachment.sh
 sed -i "s#§§PYTHON_VENV§§#source /opt/edissyum/python-venv/opencaptureformem/bin/activate#g" scripts/launch_MAIL.sh
 
 ####################
@@ -165,11 +167,6 @@ chmod u+x scripts/MailCollect/*.sh
 # Modify default config
 cp $defaultPath/src/config/config.ini.default $defaultPath/src/config/config.ini
 cp $defaultPath/src/config/mail.ini.default $defaultPath/src/config/mail.ini
-
-####################
-# Fix rights
-chmod -R 775 $defaultPath
-chown -R "$user":"$group" $defaultPath
 
 ####################
 # Fix ImageMagick Policies
@@ -188,11 +185,11 @@ fi
 # Finally update the json file
 
 if [[ "$finalRabbitMQSecure" != "no" ]]; then
-    cp $defaultPath/src/config/rabbitMQ.json.default $defaultPath/src/config/rabbitMQ.json
+    cp "$defaultPath"/src/config/rabbitMQ.json.default "$defaultPath"/src/config/rabbitMQ.json
     rabbitMqFile=$defaultPath/src/config/rabbitMQ.json
     vhost="/"
 
-    if [[ "rabbitMqVhost" != "/" && "rabbitMqVhost" != "" ]]; then
+    if [[ "$rabbitMqVhost" != "/" && "$rabbitMqVhost" != "" ]]; then
         rabbitmqctl add_vhost "$rabbitMqVhost"
         vhost=$rabbitMqVhost
     fi
@@ -201,16 +198,16 @@ if [[ "$finalRabbitMQSecure" != "no" ]]; then
     rabbitmqctl add_user "$rabbitMqUser" "$rabbitMqPassword"
     rabbitmqctl set_permissions --vhost "$vhost" "$rabbitMqUser" ".*" ".*" ".*"
 
-    jq '.username = "'$rabbitMqUser'"' $rabbitMqFile > tmp.$$.json && mv tmp.$$.json $rabbitMqFile
-    jq '.password = "'$rabbitMqPassword'"' $rabbitMqFile > tmp.$$.json && mv tmp.$$.json $rabbitMqFile
-    jq '.vhost = "'$vhost'"' $rabbitMqFile > tmp.$$.json && mv tmp.$$.json $rabbitMqFile
+    jq '.username = "'$rabbitMqUser'"' "$rabbitMqFile" > tmp.$$.json && mv tmp.$$.json "$rabbitMqFile"
+    jq '.password = "'$rabbitMqPassword'"' "$rabbitMqFile" > tmp.$$.json && mv tmp.$$.json "$rabbitMqFile"
+    jq '.vhost = "'$vhost'"' "$rabbitMqFile" > tmp.$$.json && mv tmp.$$.json "$rabbitMqFile"
 
-    if [[ "rabbitMqHost" != "" ]]; then
-        jq '.host = "'$rabbitMqHost'"' $rabbitMqFile > tmp.$$.json && mv tmp.$$.json $rabbitMqFile
+    if [[ "$rabbitMqHost" != "" ]]; then
+        jq '.host = "'$rabbitMqHost'"' "$rabbitMqFile" > tmp.$$.json && mv tmp.$$.json "$rabbitMqFile"
     fi
 
-    if [[ "rabbitMqPort" != "" ]]; then
-        jq '.port = "'$rabbitMqPort'"' $rabbitMqFile > tmp.$$.json && mv tmp.$$.json $rabbitMqFile
+    if [[ "$rabbitMqPort" != "" ]]; then
+        jq '.port = "'$rabbitMqPort'"' "$rabbitMqFile" > tmp.$$.json && mv tmp.$$.json "$rabbitMqFile"
     fi
 fi
 
@@ -322,11 +319,19 @@ sed -i "/^\[API\]/,/^\[/{s/^secret_key.*/secret_key = $secret/}" "$config_file"
 
 chmod 755 "$config_file"
 
-cp $defaultPath/src/config/custom.json.default $defaultPath/src/config/custom.json
+cp "$defaultPath"/src/config/custom.json.default "$defaultPath"/src/config/custom.json
+
+####################
+# Fill Addin Outlook manifest file with secret key
+unique_id=$(python3 -c 'import uuid; print(str(uuid.uuid4()))')
+cp "$defaultPath/src/app/addin_outlook/manifest.xml.default" "$defaultPath/src/app/addin_outlook/manifest.xml"
+sed -i "s#§§SECRET_KEY§§#$secret#g" "$defaultPath/src/app/addin_outlook/manifest.xml"
+sed -i "s#§§UNIQUE_ID§§#$unique_id#g" "$defaultPath/src/app/addin_outlook/manifest.xml"
 
 ####################
 # Create the Apache service for the API
 touch /etc/apache2/sites-available/opencaptureformem.conf
+touch /etc/apache2/sites-available/opencaptureformem-ssl.conf
 sitePackageLocation=$(/opt/edissyum/python-venv/opencaptureformem/bin/python3 -c 'import site; print(site.getsitepackages()[0])')
 
 cat << EOF > /etc/apache2/sites-available/opencaptureformem.conf
@@ -334,7 +339,7 @@ cat << EOF > /etc/apache2/sites-available/opencaptureformem.conf
     ServerName localhost
 
     DocumentRoot $defaultPath
-    WSGIDaemonProcess opencaptureformem home=$defaultPath python-path=$defaultPath python-home=/opt/edissyum/python-venv/opencaptureformem python-path=$sitePackageLocation
+    WSGIDaemonProcess opencaptureformem user=$user group=$group home=$defaultPath python-home=/opt/edissyum/python-venv/opencaptureformem python-path=$sitePackageLocation
     WSGIScriptAlias /opencaptureformem $defaultPath/wsgi.py
 
     <Directory "$defaultPath">
@@ -351,10 +356,44 @@ cat << EOF > /etc/apache2/sites-available/opencaptureformem.conf
 </VirtualHost>
 EOF
 
+cat << EOF > /etc/apache2/sites-available/opencaptureformem-ssl.conf
+<VirtualHost *:443>
+    ServerName localhost
+
+    DocumentRoot $defaultPath
+    WSGIDaemonProcess opencaptureformem user=$user group=$group home=$defaultPath python-home=/opt/edissyum/python-venv/opencaptureformem python-path=$sitePackageLocation
+    WSGIScriptAlias /opencaptureformem $defaultPath/wsgi.py
+
+    SSLEngine on
+    SSLCertificateFile      /path/to/signed_cert_and_intermediate_certs_and_dhparams
+    SSLCertificateKeyFile   /path/to/private_key
+
+    <Directory "$defaultPath">
+        AllowOverride All
+        Options -Indexes
+        WSGIProcessGroup opencaptureformem
+        WSGIApplicationGroup %{GLOBAL}
+        WSGIPassAuthorization On
+        Require all granted
+        <Files ~ "(.ini|.json)">
+            Require all denied
+        </Files>
+    </Directory>
+</VirtualHost>
+EOF
+
 a2dissite 000-default.conf
 a2ensite opencaptureformem.conf
+a2enmod ssl
 a2enmod rewrite
 systemctl restart apache2
+
+usermod -aG www-data "$user"
+
+####################
+# Fix rights
+chmod -R 775 $defaultPath
+chown -R "$user":"$group" $defaultPath
 
 echo ""
 echo "#######################################################################################################################"

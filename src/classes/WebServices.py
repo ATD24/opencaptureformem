@@ -68,7 +68,7 @@ class WebServices:
 
     def retrieve_contact_by_id(self, contact_id):
         """
-        Search a contact into MEM Courrier database using mail
+        Search a contact into MEM Courrier database using id
 
         :param contact_id: id to search
         :return: Contact from MEM Courrier
@@ -121,6 +121,21 @@ class WebServices:
                 self.log.error('getResourceByChrono : ' + str(e))
                 return False, str(e)
 
+    def retrieve_res_id_master_by_chrono(self, chrono):
+        data = {
+            'chrono': {
+                'values': chrono
+            }
+        }
+        res = requests.post(self.base_url + '/search', auth=self.auth, data=json.dumps(data),
+                            headers={'Connection': 'close', 'Content-Type': 'application/json'},
+                            timeout=self.timeout, verify=self.cert)
+        if res.status_code != 200:
+            self.log.error('(' + str(res.status_code) + ') getResIdMasterByChrono : ' + str(res.text))
+            return False
+        return json.loads(res.text)
+
+
     def link_documents(self, res_id_master, res_id):
         data = {
             'linkedResources': [res_id]
@@ -152,9 +167,13 @@ class WebServices:
         :param custom_fields: custom fields to add to the document
         :return: res_id from MEM Courrier
         """
+
+        external_contact_id = None
         if not contact:
             contact = {}
         else:
+            if 'externalId' in contact and contact['externalId'] and 'ia_tmp_contact_id' in contact['externalId']:
+                external_contact_id = contact['externalId']['ia_tmp_contact_id']
             contact = [{'id': contact['id'], 'type': 'contact'}]
 
         if not date:
@@ -165,7 +184,7 @@ class WebServices:
             if 'subject' in _process and _process['subject']:
                 subject = _process['subject']
         else:
-            if config.cfg['OCForMEM']['uppercasesubject'] == 'True':
+            if config.cfg['OCForMEM']['uppercase_subject'] == 'True':
                 subject = subject.upper()
 
             if 'override_subject' in _process and _process['override_subject'] == 'True':
@@ -191,6 +210,9 @@ class WebServices:
             'processLimitDate': str(self.calcul_process_limit_date(_process['doctype']))
         }
 
+        if external_contact_id:
+            data['externalId'] = {'ia_tmp_contact_id': external_contact_id}
+
         if 'diffusion_list' not in _process or not _process['diffusion_list']:
             data['emptyDiffusionList'] = True
 
@@ -212,12 +234,12 @@ class WebServices:
             if res.status_code != 200:
                 self.log.error('(' + str(res.status_code) + ') InsertIntoMEMError : ' + str(res.text))
                 return False, str(res.text)
-            return res.text
+            return True, json.loads(res.text)
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             self.log.error('InsertIntoMEMError : ' + str(e))
             return False, str(e)
 
-    def insert_attachment(self, file_content, config, res_id, _process):
+    def insert_attachment(self, file_content, config, args, _process):
         """
         Insert attachment into MEM Courrier database
 
@@ -227,11 +249,19 @@ class WebServices:
         :param _process: Process we will use to insert on MEM Courrier (from config file)
         :return: res_id from MEM Courrier
         """
+        title = 'Rapprochement note interne'
+        if 'title' in config.cfg[_process] and config.cfg[_process]['title']:
+            title = config.cfg[_process]['title']
+            if '#chrono' in title:
+                title = title.replace('#chrono', args['chrono'])
+            if '#resid' in title:
+                title = title.replace('#resid', str(args['resid']))
+
         data = {
             'status': config.cfg[_process]['status'],
-            'title': 'Rapprochement note interne',
+            'title': title,
             'type': config.cfg[_process]['attachment_type'],
-            'resIdMaster': res_id,
+            'resIdMaster': args['resid'],
             'encodedFile': base64.b64encode(file_content).decode('utf-8'),
             'format': config.cfg[_process]['format'],
         }
@@ -244,7 +274,7 @@ class WebServices:
             if res.status_code != 200:
                 self.log.error('(' + str(res.status_code) + ') InsertAttachmentsIntoMEMError : ' + str(res.text))
                 return False, str(res.text)
-            return res.text
+            return True, json.loads(res.text)
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             self.log.error('InsertAttachmentsIntoMEMError : ' + str(e))
             return False, str(e)
@@ -275,7 +305,7 @@ class WebServices:
             if res.status_code != 200:
                 self.log.error('(' + str(res.status_code) + ') InsertAttachmentsReconciliationIntoMEMError : ' + str(res.text))
                 return False, str(res.text)
-            return res.text
+            return True, json.loads(res.text)
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             self.log.error('InsertAttachmentsReconciliationIntoMEMError : ' + str(e))
             return False, str(e)
@@ -354,7 +384,7 @@ class WebServices:
             self.log.error('ReattachToDocumentError : ' + str(e))
             return False, str(e)
 
-    def change_status(self, res_id, config):
+    def change_status(self, res_id, config, status=None):
         """
         Change status of a MEM Courrier document
         :param res_id: res_id of the MEM Courrier document
@@ -362,7 +392,7 @@ class WebServices:
         :return: process success (boolean)
         """
 
-        if config.cfg['REATTACH_DOCUMENT']['status']:
+        if config.cfg['REATTACH_DOCUMENT']['status'] and not status:
             args = json.dumps({
                 "status": config.cfg['REATTACH_DOCUMENT']['status'],
                 "resId": [res_id],
@@ -370,7 +400,7 @@ class WebServices:
             })
         else:
             args = json.dumps({
-                "status": config.cfg['REATTACH_DOCUMENT']['status'],
+                "status": status,
                 "resId": [res_id],
             })
 
@@ -593,6 +623,24 @@ class WebServices:
             self.log.error('CreateContactError : ' + str(e))
             return False, str(e)
 
+    def insert_note(self, res_id, note_content):
+        data = {
+            'resId': res_id,
+            'value': note_content
+        }
+        try:
+            res = requests.post(self.base_url + '/notes', auth=self.auth,
+                                data=json.dumps(data), timeout=self.timeout, verify=self.cert,
+                                headers={'Connection': 'close', 'Content-Type': 'application/json'})
+
+            if res.status_code != 200:
+                self.log.error('InsertNoteError : ' + str(res.text))
+                return False, str(res.text)
+            return True, json.loads(res.text)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            self.log.error('InsertNoteError : ' + str(e))
+            return False, str(e)
+
     def retrieve_listinstance(self, res_id):
         try:
             res = requests.get(self.base_url + '/resources/' + str(res_id) + '/listInstance', auth=self.auth,
@@ -620,6 +668,18 @@ class WebServices:
             self.log.error('UpdateContactError : ' + str(e))
             return False, str(e)
 
+    def retrieve_data(self, body_json):
+        try:
+            res = requests.get(self.base_url + '/database/select', auth=self.auth, data=json.dumps(body_json),
+                               headers={'Connection': 'close', 'Content-Type': 'application/json'},
+                               timeout=self.timeout, verify=self.cert)
+            if res.status_code != 200:
+                self.log.error('RetrieveDataError : ' + str(res.text))
+                return False, str(res.text)
+            return json.loads(res.text)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            self.log.error('RetrieveDataError : ' + str(e))
+            return False, str(e)
 
     # ATD24 - Ability to only update an existing resource by a chrono number
     def update_resource_by_chrono(self, chrono_number, update_args = None):

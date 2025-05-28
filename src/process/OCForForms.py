@@ -24,8 +24,39 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 
+def extract_address_from_format(line, address_format, log):
+    line = re.sub(r'\s+', ' ', line).strip()
+    line = line.replace(" ,", ",")
+
+    field_regex_map = {
+        "addressNumber": r"\d+[A-Za-zÀ-ÿ\-]*|",
+        "addressStreet": r"[A-Za-zÀ-ÿ0-9'\s\-]+",
+        "addressPostcode": r"\d{5}",
+        "addressTown": r"[A-Za-zÀ-ÿ'\s\-]+",
+        "addressCountry": r"[A-Za-zÀ-ÿ'\s\-]+",
+        "addressLatitude": r"[-+]?\d*\.\d+",
+        "addressLongitude": r"[-+]?\d*\.\d+"
+    }
+
+    pattern = address_format
+    for placeholder, regex in field_regex_map.items():
+        pattern = pattern.replace(placeholder, f"(?P<{placeholder}>{regex})")
+
+    match = re.search(pattern, line)
+    if match:
+        result = match.groupdict()
+
+        if not result.get("addressNumber"):
+            result["addressNumber"] = ""
+
+        log.info("Address match found:" + str(result))
+        return result
+
+    log.info("No address match found.")
+    return {}
+
 def process_form(args, config, config_mail, log, web_service, process_name, file):
-    json_identifier = config.cfg['GLOBAL']['formpath'] + '/forms_identifier.json'
+    json_identifier = config.cfg['GLOBAL']['form_path'] + '/forms_identifier.json'
     if os.path.isfile(json_identifier):
         with open(json_identifier, 'r', encoding='UTF-8') as identifier:
             identifier = identifier.read()
@@ -78,7 +109,7 @@ def process_form(args, config, config_mail, log, web_service, process_name, file
 
         # If a process is found, use the specific JSON file to search data using REGEX
         if process_found:
-            json_file = config.cfg['GLOBAL']['formpath'] + '/' + identifier[process]['json_file']
+            json_file = config.cfg['GLOBAL']['form_path'] + '/' + identifier[process]['json_file']
             if os.path.isfile(json_file):
                 with open(json_file, 'r', encoding='UTF-8') as data:
                     data = json.loads(data.read())['FIELDS']
@@ -143,69 +174,76 @@ def process_form(args, config, config_mail, log, web_service, process_name, file
                         column = field['column']
                         regex_return = re.findall(r'' + regex, line.replace('\n', ' '))
                         if regex_return:
+                            if isinstance(regex_return[0], tuple):
+                                text_data = ' | '.join(regex_return[0]).strip()
+                            else:
+                                text_data = regex_return[0].strip()
                             if column != 'custom':
-                                args['data'][column] = re.sub(r'\s+', ' ', regex_return[0].strip())
+                                if field.get('correspondance_table') is not None and field['correspondance_table'] is not None and field.get('database_association') is not None and field['database_association'] is not None:
+                                    for correspondance in field['correspondance_table']:
+                                        if text_data.lower() == correspondance.lower():
+                                            log.info('Found correspondance : ' + correspondance)
+                                            field['database_association']['filterValue'] = field['correspondance_table'][correspondance]
+                                            res = web_service.retrieve_data(field['database_association'])
+                                            if res and res[0] and res[0][field['database_association']['column']] is not None:
+                                                log.info('Found data ' + column + ' : ' + str(res[0][field['database_association']['column']]))
+                                                args['data'][column] = str(res[0][field['database_association']['column']])
+                                elif field.get('database_association') is not None and field['database_association'] is not None:
+                                    field['database_association']['filterValue'] = text_data
+                                    res = web_service.retrieve_data(field['database_association'])
+                                    if res and res[0] and res[0][field['database_association']['column']] is not None:
+                                        log.info('Found data ' + column + ' : ' + str(res[0][field['database_association']['column']]))
+                                        args['data'][column] = str(res[0][field['database_association']['column']])
+                                elif field.get('correspondance_table') is not None and field['correspondance_table'] is not None:
+                                    for correspondance in field['correspondance_table']:
+                                        if text_data.lower() == correspondance.lower():
+                                            log.info('Found correspondance : ' + correspondance)
+                                            args['data'][column] = field['correspondance_table'][correspondance]
+                                else:
+                                    args['data'][column] = re.sub(r'\s+', ' ', text_data)
 
-                            # If we have a mapping specified, search for value between []
                             if 'mapping' in field:
                                 mapping = field['mapping']
-                                brackets = re.findall(r'\[(.*?)]', regex_return[0])
-                                text_without_brackets = re.sub(r'\[(.*?)]', '', regex_return[0]).strip()
-                                cpt = 0
-
-                                for value in brackets:
-                                    if cpt < len(mapping):
-                                        column = mapping[cpt]['column']
-                                        if mapping[cpt]['isCustom'] == 'True':
-                                            if mapping[cpt]['isAddress'] == 'True':
-                                                latitude = value.split(',')[0]
-                                                longitude = value.split(',')[1]
-                                                zip_code = ""
-                                                for zip_code in re.finditer('\d{2}[ ]?\d{3}', text_without_brackets):
-                                                    zip_code = zip_code.group().replace(' ', '')
-                                                args['data']['customFields'].update({
-                                                    column: [{
-                                                        'latitude': latitude,
-                                                        'longitude': longitude,
-                                                        "addressTown": "",
-                                                        "addressNumber": "",
-                                                        "addressStreet": "",
-                                                        "addressPostcode": zip_code,
-                                                    }]
-                                                })
+                                for cpt in range(len(mapping)):
+                                    if mapping[cpt]['is_custom'] == 'True':
+                                        if mapping[cpt]['is_address'] == 'True':
+                                            extracted_address = extract_address_from_format(text_data, mapping[cpt]['address_format'], log)
+                                            if not extracted_address or extracted_address == {}:
+                                                args['data']['customFields'][mapping[cpt]['column']][0]['addressStreet'] = text_data
                                             else:
-                                                args['data']['customFields'].update({column: value.strip()})
-                                        else:
-                                            args['data'][column] = value.strip()
-                                    cpt = cpt + 1
+                                                if 'addressLatitude' in extracted_address:
+                                                    extracted_address['latitude'] = extracted_address.pop('addressLatitude')
+                                                if 'addressLongitude' in extracted_address:
+                                                    extracted_address['longitude'] = extracted_address.pop('addressLongitude')
+                                                args['data']['customFields'][mapping[cpt]['column']][0].update(extracted_address)
 
-                                # Put the rest of the text (not in brackets) into the last map (if the cpt into mapping correponds)
-                                if len(brackets) + 1 == len(mapping):
-                                    last_map = mapping[len(mapping) - 1]
-                                    column = last_map['column']
-                                    if last_map['isCustom'] == 'True':
-                                        if mapping[cpt]['isAddress'] == 'True':
-                                            args['data']['customFields'][column][0]['addressStreet'] = text_without_brackets.strip()
-                                        elif 'isDate' in mapping[cpt] and mapping[cpt]['isDate'] == 'True':
+                                        elif 'is_date' in mapping[cpt] and mapping[cpt]['is_date'] == 'True':
                                             locale.setlocale(locale.LC_ALL, 'fr_FR.UTF-8')
-                                            _date_format = mapping[cpt]['dateFormat']
-                                            _date = datetime.strptime(text_without_brackets.strip(), _date_format)
-                                            args['data']['customFields'].update({column: str(_date)})
+                                            _date_format = mapping[cpt]['date_format']
+                                            _date = datetime.strptime(text_data, _date_format)
+                                            args['data']['customFields'].update({mapping[cpt]['column']: str(_date)})
                                         else:
-                                            args['data']['customFields'].update({column: text_without_brackets.strip()})
+                                            args['data']['customFields'].update({mapping[cpt]['column']: text_data})
                                     else:
-                                        args['data'][column] = text_without_brackets.strip()
+                                        args['data'][column] = text_data
 
-                res_contact = web_service.create_contact(results[contact_table])
-                if res_contact[0]:
-                    args['data']['senders'] = [{'id': res_contact[1]['id'], 'type': 'contact'}]
+                if 'email' in results[contact_table]:
+                    res_contact = web_service.retrieve_contact_by_mail(results[contact_table]['email'])
+                    if res_contact:
+                        log.info('Contact found using email : ' + results[contact_table]['email'])
+                        args['data']['senders'] = [{'id': res_contact['id'], 'type': 'contact'}]
+                    else:
+                        res_contact = web_service.create_contact(results[contact_table])
+                        if res_contact[0]:
+                            args['data']['senders'] = [{'id': res_contact[1]['id'], 'type': 'contact'}]
+
                 res = web_service.insert_letterbox_from_mail(args['data'], config_mail.cfg[process_name])
                 if res:
                     log.info('Insert form from EMAIL OK : ' + str(res))
                     return res
 
                 try:
-                    shutil.move(file, config.cfg['GLOBAL']['errorpath'] + os.path.basename(file))
+                    shutil.move(file, config.cfg['GLOBAL']['error_path'] + os.path.basename(file))
                 except shutil.Error as e:
                     log.error('Moving file ' + file + ' error : ' + str(e))
                 return False, res
