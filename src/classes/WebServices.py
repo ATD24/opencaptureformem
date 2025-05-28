@@ -22,7 +22,7 @@ import requests
 import holidays
 from requests.auth import HTTPBasicAuth
 from datetime import datetime, time, timedelta
-
+import src.classes.Config as configClass
 
 class WebServices:
     def __init__(self, host, user, pwd, log, timeout, cert_path):
@@ -407,6 +407,24 @@ class WebServices:
         if _process.get('custom_fields') is not None:
             args['customFields'].update(json.loads(_process.get('custom_fields')))
 
+        # ATD24 - Logic to override the chrono with a custom field
+        if 'overridechronowithcustomfield' in _process and _process.get('overridechronowithcustomfield') in args['customFields']:
+            args['overrideChrono'] = args['customFields'][_process.get('overridechronowithcustomfield')]
+
+        # ATD24 - Logic to update a resource from a chrono number contained in a custom field
+        if _process.get('updateonlychronofromcustomfield', None) is not None:
+            chrono_number = args['customFields'][_process.get('updateonlychronofromcustomfield')]
+            data_to_update = {}
+            if _process.get('updateonlykeeponly', None) is not None:
+                for field_to_keep in _process.get('updateonlykeeponly').split(','):
+                    if field_to_keep in args:
+                        data_to_update[field_to_keep] = args[field_to_keep]
+            else:
+                data_to_update = args
+            self.log.info(f"Update only chrono {chrono_number} with data " + json.dumps(data_to_update))
+            #Update only, return now !
+            return self.update_resource_by_chrono(chrono_number, data_to_update)
+
         try:
             res = requests.post(self.base_url + '/resources', auth=self.auth, data=json.dumps(args),
                                 headers={'Connection': 'close', 'Content-Type': 'application/json'},
@@ -601,3 +619,39 @@ class WebServices:
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             self.log.error('UpdateContactError : ' + str(e))
             return False, str(e)
+
+
+    # ATD24 - Ability to only update an existing resource by a chrono number
+    def update_resource_by_chrono(self, chrono_number, update_args = None):
+
+        # First retrieve document
+        chrono_res = self.retrieve_document_by_chrono(chrono_number)
+
+        if not chrono_res:
+            self.log.error('Did not find a document with chrono : ' + str(chrono_number))
+            return False, "No doc with chrono" + str(chrono_number)
+
+        self.log.info(f"Found document {chrono_res['resId']} from chrono {chrono_number}")
+        args = chrono_res | update_args
+        try:
+            self.log.info(f"Update document {chrono_res['resId']} with data " + json.dumps(update_args))
+            res = requests.put(self.base_url + '/resources/' + str(chrono_res['resId']), auth=self.auth, params={ 'fromProcess': 'true' },data=json.dumps(args),
+                                headers={'Connection': 'close', 'Content-Type': 'application/json'},
+                                timeout=self.timeout, verify=self.cert)
+
+            if res.status_code < 200 or res.status_code >= 300:
+                self.log.error('(' + str(res.status_code) + ') MailUpdateInMEMError : ' + str(res.text))
+                return False, str(res.text)
+            
+            if 'status' in args:
+                self.log.info(f"Update STATUS of document {chrono_res['resId']} with {args['status']}")
+                # Build a config in order te call the existing change_status method
+                config = configClass.Config()
+                config.cfg = { 'REATTACH_DOCUMENT': {'status': args['status']} }
+                self.change_status(chrono_res['resId'], config)
+            return True, { 'resId': chrono_res['resId'] }
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            self.log.error('MailUpdateInMEMError : ' + str(e))
+            return False, str(e)
+    # ATD24 - END
+
