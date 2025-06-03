@@ -244,11 +244,11 @@ def process_form(args, config, config_mail, log, web_service, process_name, file
                 # if override_chrono_with_custom_field param: check we can find info in custom fields 
                 if 'customFields' in args['data'] and process_config.get('override_chrono_with_custom_field') in args['data']['customFields']:
                     # Create overrideChrono data for API call
-                    args['data']['overrideChrono'] = args['data']['customFields'][_process.get('override_chrono_with_custom_field')]
+                    args['data']['overrideChrono'] = args['data']['customFields'][process_config.get('override_chrono_with_custom_field')]
                 
                 # Check if we only want to update an existing resource
                 if process_config.get('update_existing_only', None) is True:
-                    chrono = args['data'].get('overrideChrono', args['data'].get(chrono))
+                    chrono = args['data'].get('overrideChrono', args['data'].get('chrono'))
                     # If chrono not found, abort update only and continue with classic insert
                     if not chrono:
                         log.error('Did not found a chrono, give up update only')

@@ -22,7 +22,7 @@ import requests
 import holidays
 from requests.auth import HTTPBasicAuth
 from datetime import datetime, time, timedelta
-import src.classes.Config as configClass
+from .Config import Config as configClass
 
 class WebServices:
     def __init__(self, host, user, pwd, log, timeout, cert_path):
