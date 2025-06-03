@@ -253,6 +253,7 @@ def process_form(args, config, config_mail, log, web_service, process_name, file
                     if not chrono:
                         log.error('Did not found a chrono, give up update only')
                     else:
+                        data_to_update = {}
                         # For update only, check which fields we want to keep for update
                         if process_config.get('update_existing_fields_to_keep', None) is not None:
                             for field_to_keep in process_config.get('update_existing_fields_to_keep').split(','):
