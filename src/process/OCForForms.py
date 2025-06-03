@@ -247,7 +247,7 @@ def process_form(args, config, config_mail, log, web_service, process_name, file
                     args['data']['overrideChrono'] = args['data']['customFields'][process_config.get('override_chrono_with_custom_field')]
                 
                 # Check if we only want to update an existing resource
-                if process_config.get('update_existing_only', None) is True:
+                if process_config.get('update_existing_only', None) == 'True':
                     chrono = args['data'].get('overrideChrono', args['data'].get('chrono'))
                     # If chrono not found, abort update only and continue with classic insert
                     if not chrono:
