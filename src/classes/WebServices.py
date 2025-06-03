@@ -437,24 +437,6 @@ class WebServices:
         if _process.get('custom_fields') is not None:
             args['customFields'].update(json.loads(_process.get('custom_fields')))
 
-        # ATD24 - Logic to override the chrono with a custom field
-        if 'overridechronowithcustomfield' in _process and _process.get('overridechronowithcustomfield') in args['customFields']:
-            args['overrideChrono'] = args['customFields'][_process.get('overridechronowithcustomfield')]
-
-        # ATD24 - Logic to update a resource from a chrono number contained in a custom field
-        if _process.get('updateonlychronofromcustomfield', None) is not None:
-            chrono_number = args['customFields'][_process.get('updateonlychronofromcustomfield')]
-            data_to_update = {}
-            if _process.get('updateonlykeeponly', None) is not None:
-                for field_to_keep in _process.get('updateonlykeeponly').split(','):
-                    if field_to_keep in args:
-                        data_to_update[field_to_keep] = args[field_to_keep]
-            else:
-                data_to_update = args
-            self.log.info(f"Update only chrono {chrono_number} with data " + json.dumps(data_to_update))
-            #Update only, return now !
-            return self.update_resource_by_chrono(chrono_number, data_to_update)
-
         try:
             res = requests.post(self.base_url + '/resources', auth=self.auth, data=json.dumps(args),
                                 headers={'Connection': 'close', 'Content-Type': 'application/json'},

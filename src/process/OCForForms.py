@@ -237,6 +237,34 @@ def process_form(args, config, config_mail, log, web_service, process_name, file
                         if res_contact[0]:
                             args['data']['senders'] = [{'id': res_contact[1]['id'], 'type': 'contact'}]
 
+
+                # ATD24 - Logic to override the chrono with a custom field
+                process_config = config_mail.cfg[process_name]
+
+                # if override_chrono_with_custom_field param: check we can find info in custom fields 
+                if 'customFields' in args['data'] and process_config.get('override_chrono_with_custom_field') in args['data']['customFields']:
+                    # Create overrideChrono data for API call
+                    args['data']['overrideChrono'] = args['data']['customFields'][_process.get('override_chrono_with_custom_field')]
+                
+                # Check if we only want to update an existing resource
+                if process_config.get('update_existing_only', None) is True:
+                    chrono = args['data'].get('overrideChrono', args['data'].get(chrono))
+                    # If chrono not found, abort update only and continue with classic insert
+                    if not chrono:
+                        log.error('Did not found a chrono, give up update only')
+                    else:
+                        # For update only, check which fields we want to keep for update
+                        if process_config.get('update_existing_fields_to_keep', None) is not None:
+                            for field_to_keep in process_config.get('update_existing_fields_to_keep').split(','):
+                                if field_to_keep in args['data']:
+                                    data_to_update[field_to_keep] = args['data'][field_to_keep]
+                        else:
+                            # Take all capture data for update if param does not exist
+                            data_to_update = args['data']
+                        log.info(f"Update only chrono {chrono} with data " + json.dumps(data_to_update))
+                        return web_service.update_resource_by_chrono(chrono,data_to_update)
+                # END ATD24
+
                 res = web_service.insert_letterbox_from_mail(args['data'], config_mail.cfg[process_name])
                 if res:
                     log.info('Insert form from EMAIL OK : ' + str(res))
