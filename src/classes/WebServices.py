@@ -22,7 +22,7 @@ import requests
 import holidays
 from requests.auth import HTTPBasicAuth
 from datetime import datetime, time, timedelta
-from .Config import Config as configClass
+from .Config import Config
 
 class WebServices:
     def __init__(self, host, user, pwd, log, timeout, cert_path):
@@ -688,7 +688,7 @@ class WebServices:
             if 'status' in args:
                 self.log.info(f"Update STATUS of document {chrono_res['resId']} with {args['status']}")
                 # Build a config in order te call the existing change_status method
-                config = configClass.Config()
+                config = Config()
                 config.cfg = { 'REATTACH_DOCUMENT': {'status': args['status']} }
                 self.change_status(chrono_res['resId'], config)
             return True, { 'resId': chrono_res['resId'] }
