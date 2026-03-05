@@ -517,7 +517,7 @@ class WebServices:
             if res.status_code != 200:
                 self.log.error('(' + str(res.status_code) + ') RetrieveMEMEntitiesError : ' + str(res.text))
                 return False, str(res.text)
-            return json.loads(res.text)
+            return True, json.loads(res.text)
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             self.log.error('RetrieveMEMEntitiesError : ' + str(e))
             return False, str(e)
@@ -531,7 +531,7 @@ class WebServices:
             if res.status_code != 200:
                 self.log.error('(' + str(res.status_code) + ') RetrieveMEMDoctypesError : ' + str(res.text))
                 return False, str(res.text)
-            return json.loads(res.text)
+            return True, json.loads(res.text)
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             self.log.error('RetrieveMEMDoctypesError : ' + str(e))
             return False, str(e)
@@ -587,7 +587,7 @@ class WebServices:
             if res.status_code != 200:
                 self.log.error('(' + str(res.status_code) + ') RetrieveMEMCustomFieldsError : ' + str(res.text))
                 return False, str(res.text)
-            return json.loads(res.text)
+            return True, json.loads(res.text)
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             self.log.error('RetrieveMEMCustomFieldsError : ' + str(e))
             return False, str(e)
